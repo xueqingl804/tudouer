@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { MappedPixel } from '../../utils/pixelation';
+import { loadFocusSession, loadFocusProgress, saveFocusProgress } from '../../utils/focusSessionUtils';
 import { 
   getAllConnectedRegions, 
   isRegionCompleted, 
@@ -62,6 +63,9 @@ export default function FocusMode() {
   const [mappedPixelData, setMappedPixelData] = useState<MappedPixel[][] | null>(null);
   const [gridDimensions, setGridDimensions] = useState<{ N: number; M: number } | null>(null);
 
+  // 当前会话 ID（来自 URL ?session=...），用于进度持久化
+  const [sessionId, setSessionId] = useState<string | null>(null);
+
   // 专心模式状态
   const [focusState, setFocusState] = useState<FocusModeState>({
     currentColor: '',
@@ -120,8 +124,98 @@ export default function FocusMode() {
     };
   }, [focusState.isPaused]);
 
-  // 从localStorage加载数据
+  // 自动保存拼豆进度（每次 completedCells 变化时触发）
   useEffect(() => {
+    if (!sessionId) return;
+    // completedCells 是 Set，需要序列化为数组
+    const completedArray = Array.from(focusState.completedCells);
+    saveFocusProgress(sessionId, {
+      completedCells: completedArray,
+      colorProgress: focusState.colorProgress,
+      currentColor: focusState.currentColor,
+      totalElapsedTime: focusState.totalElapsedTime,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, focusState.completedCells]);
+
+  // 页面关闭/离开时也保存一次（含最新计时）
+  useEffect(() => {
+    if (!sessionId) return;
+    const handleUnload = () => {
+      saveFocusProgress(sessionId, {
+        completedCells: Array.from(focusState.completedCells),
+        colorProgress: focusState.colorProgress,
+        currentColor: focusState.currentColor,
+        totalElapsedTime: focusState.totalElapsedTime,
+      });
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, [sessionId, focusState.completedCells, focusState.colorProgress, focusState.currentColor, focusState.totalElapsedTime]);
+
+  // 从 URL session 参数或 localStorage 加载数据
+  useEffect(() => {
+    // 优先从 URL ?session=ID 参数加载（下载后生成的永久专心拼豆链接）
+    const params = new URLSearchParams(window.location.search);
+    const urlSessionId = params.get('session');
+    if (urlSessionId) {
+      const sessionData = loadFocusSession(urlSessionId);
+      if (sessionData) {
+        setSessionId(urlSessionId);
+        setMappedPixelData(sessionData.pixelData);
+        setGridDimensions(sessionData.gridDimensions);
+        const colorCounts = sessionData.colorCounts;
+        const colorSystem = (sessionData.selectedColorSystem as ColorSystem) || 'MARD';
+
+        // 构建颜色列表
+        const colors = Object.entries(colorCounts).map(([, colorData]) => {
+          const displayKey = getColorKeyByHex(colorData.color, colorSystem);
+          return {
+            color: colorData.color,
+            name: displayKey,
+            total: colorData.count,
+            completed: 0,
+          };
+        });
+
+        // 尝试恢复上次的拼豆进度
+        const savedProgress = loadFocusProgress(urlSessionId);
+        if (savedProgress) {
+          const restoredCompleted = new Set<string>(savedProgress.completedCells);
+
+          // 用已保存的完成数更新颜色列表
+          const colorsWithProgress = colors.map(c => ({
+            ...c,
+            completed: savedProgress.colorProgress[c.color]?.completed ?? 0,
+          }));
+          setAvailableColors(colorsWithProgress);
+
+          setFocusState(prev => ({
+            ...prev,
+            completedCells: restoredCompleted,
+            colorProgress: savedProgress.colorProgress,
+            currentColor: savedProgress.currentColor || colors[0]?.color || '',
+            totalElapsedTime: savedProgress.totalElapsedTime,
+            lastResumeTime: Date.now(),
+          }));
+        } else {
+          setAvailableColors(colors);
+          if (colors.length > 0) {
+            setFocusState(prev => ({
+              ...prev,
+              currentColor: colors[0].color,
+              colorProgress: colors.reduce<Record<string, { completed: number; total: number }>>((acc, c) => {
+                acc[c.color] = { completed: 0, total: c.total };
+                return acc;
+              }, {}),
+            }));
+          }
+        }
+        return;
+      }
+    }
+
+    // 回退：从旧式 focusMode_* localStorage 键加载
     const savedPixelData = localStorage.getItem('focusMode_pixelData');
     const savedGridDimensions = localStorage.getItem('focusMode_gridDimensions');
     const savedColorCounts = localStorage.getItem('focusMode_colorCounts');
