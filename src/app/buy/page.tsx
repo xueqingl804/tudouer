@@ -308,6 +308,7 @@ function BuyPageInner() {
               {/* 二维码 */}
               {qrDataUrl && !isMobile ? (
                 <div className="mb-4">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={qrDataUrl}
                     alt="支付二维码"

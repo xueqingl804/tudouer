@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { useOneLicenseDownload } from '@/lib/kv';
+import { consumeLicenseDownload } from '@/lib/kv';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     const normalizedKey = key.trim().toUpperCase();
 
     // 从 KV 验证密钥并扣减一次下载次数
-    const result = await useOneLicenseDownload(normalizedKey);
+    const result = await consumeLicenseDownload(normalizedKey);
 
     return NextResponse.json({
       valid: result.success,

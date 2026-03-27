@@ -47,7 +47,7 @@ export async function setLicenseKey(key: string, data: LicenseKeyData): Promise<
  * 验证密钥并扣减一次下载次数（原子性：先 get 再 set，低并发场景足够用）
  * 返回 { success: true, remaining } 或 { success: false, remaining: 0 }
  */
-export async function useOneLicenseDownload(key: string): Promise<{
+export async function consumeLicenseDownload(key: string): Promise<{
   success: boolean;
   remaining: number;
   message: string;
