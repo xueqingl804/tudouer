@@ -16,6 +16,10 @@ interface FocusCanvasProps {
   onCellClick: (row: number, col: number) => void;
   onScaleChange: (scale: number) => void;
   onOffsetChange: (offset: { x: number; y: number }) => void;
+  // 坐标功能
+  originCell: { row: number; col: number } | null;
+  isSettingOrigin: boolean;
+  onOriginSet: (row: number, col: number) => void;
 }
 
 const FocusCanvas: React.FC<FocusCanvasProps> = ({
@@ -32,13 +36,17 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
   sectionLineColor,
   onCellClick,
   onScaleChange,
-  onOffsetChange
+  onOffsetChange,
+  originCell,
+  isSettingOrigin,
+  onOriginSet,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [lastPanPoint, setLastPanPoint] = useState<{ x: number; y: number } | null>(null);
   const [lastPinchDistance, setLastPinchDistance] = useState<number | null>(null);
+  const [hoverCell, setHoverCell] = useState<{ row: number; col: number } | null>(null);
 
   // 计算格子大小
   const cellSize = Math.max(15, Math.min(40, 300 / Math.max(gridDimensions.N, gridDimensions.M)));
@@ -118,16 +126,27 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
         
         // 如果是推荐区域的中心点，添加特殊标记
         if (recommendedCell && recommendedCell.row === row && recommendedCell.col === col && isInRecommendedRegion) {
-          // 绘制中心点标记
           ctx.fillStyle = '#ff4444';
           ctx.beginPath();
           ctx.arc(x + cellSize / 2, y + cellSize / 2, 4, 0, 2 * Math.PI);
           ctx.fill();
         }
 
-
-
-
+        // 高亮原点格子
+        if (originCell && originCell.row === row && originCell.col === col) {
+          ctx.strokeStyle = '#0066ff';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x + 1, y + 1, cellSize - 2, cellSize - 2);
+          // 绘制十字标记
+          ctx.strokeStyle = '#0066ff';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x + cellSize * 0.1, y + cellSize * 0.5);
+          ctx.lineTo(x + cellSize * 0.9, y + cellSize * 0.5);
+          ctx.moveTo(x + cellSize * 0.5, y + cellSize * 0.1);
+          ctx.lineTo(x + cellSize * 0.5, y + cellSize * 0.9);
+          ctx.stroke();
+        }
       }
     }
 
@@ -136,7 +155,6 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
       ctx.strokeStyle = sectionLineColor;
       ctx.lineWidth = 2;
       
-      // 绘制竖直分区线
       for (let col = gridSectionInterval; col < gridDimensions.N; col += gridSectionInterval) {
         const x = col * cellSize;
         ctx.beginPath();
@@ -145,7 +163,6 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
         ctx.stroke();
       }
       
-      // 绘制水平分区线
       for (let row = gridSectionInterval; row < gridDimensions.M; row += gridSectionInterval) {
         const y = row * cellSize;
         ctx.beginPath();
@@ -154,7 +171,7 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
         ctx.stroke();
       }
     }
-  }, [mappedPixelData, gridDimensions, cellSize, currentColor, completedCells, recommendedCell, recommendedRegion, gridSectionInterval, showSectionLines, sectionLineColor]);
+  }, [mappedPixelData, gridDimensions, cellSize, currentColor, completedCells, recommendedCell, recommendedRegion, gridSectionInterval, showSectionLines, sectionLineColor, originCell]);
 
   // 处理触摸/鼠标事件
   const getEventPosition = useCallback((event: React.MouseEvent | React.TouchEvent) => {
@@ -208,9 +225,13 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
 
     const gridPos = getGridPosition(pos.x, pos.y);
     if (gridPos) {
-      onCellClick(gridPos.row, gridPos.col);
+      if (isSettingOrigin) {
+        onOriginSet(gridPos.row, gridPos.col);
+      } else {
+        onCellClick(gridPos.row, gridPos.col);
+      }
     }
-  }, [onCellClick, getEventPosition, getGridPosition]);
+  }, [onCellClick, onOriginSet, isSettingOrigin, getEventPosition, getGridPosition]);
 
   // 处理缩放
   const handleWheel = useCallback((event: React.WheelEvent) => {
@@ -224,7 +245,6 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
   // 处理双指缩放（触摸）
   const handleTouchStart = useCallback((event: React.TouchEvent) => {
     if (event.touches.length === 1) {
-      // 单指拖拽开始
       setIsDragging(true);
       setLastPanPoint({
         x: event.touches[0].clientX,
@@ -232,7 +252,6 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
       });
       setLastPinchDistance(null);
     } else if (event.touches.length === 2) {
-      // 双指缩放开始
       event.preventDefault();
       setIsDragging(false);
       setLastPanPoint(null);
@@ -244,7 +263,6 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
     event.preventDefault();
     
     if (event.touches.length === 1 && isDragging && lastPanPoint) {
-      // 单指拖拽
       const deltaX = event.touches[0].clientX - lastPanPoint.x;
       const deltaY = event.touches[0].clientY - lastPanPoint.y;
       
@@ -258,15 +276,12 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
         y: event.touches[0].clientY
       });
     } else if (event.touches.length === 2 && lastPinchDistance !== null) {
-      // 双指缩放处理
       const currentDistance = getTouchDistance(event.touches);
       const scaleRatio = currentDistance / lastPinchDistance;
       
-      // 限制缩放范围并应用缩放
       const newScale = Math.max(0.3, Math.min(3, canvasScale * scaleRatio));
       onScaleChange(newScale);
       
-      // 更新距离记录
       setLastPinchDistance(currentDistance);
     }
   }, [isDragging, lastPanPoint, canvasOffset, onOffsetChange, lastPinchDistance, canvasScale, onScaleChange]);
@@ -277,12 +292,10 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
       setLastPanPoint(null);
       setLastPinchDistance(null);
       
-      // 如果没有移动太多，视为点击
       if (!isDragging) {
         handleClick(event);
       }
     } else if (event.touches.length === 1) {
-      // 从双指缩放切换到单指拖拽
       setLastPinchDistance(null);
       setIsDragging(true);
       setLastPanPoint({
@@ -302,6 +315,15 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
   }, []);
 
   const handleMouseMove = useCallback((event: React.MouseEvent) => {
+    // 更新 hover 格子（用于坐标显示）
+    const pos = getEventPosition(event);
+    if (pos) {
+      const gridPos = getGridPosition(pos.x, pos.y);
+      setHoverCell(gridPos);
+    } else {
+      setHoverCell(null);
+    }
+
     if (isDragging && lastPanPoint) {
       const deltaX = event.clientX - lastPanPoint.x;
       const deltaY = event.clientY - lastPanPoint.y;
@@ -316,11 +338,17 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
         y: event.clientY
       });
     }
-  }, [isDragging, lastPanPoint, canvasOffset, onOffsetChange]);
+  }, [isDragging, lastPanPoint, canvasOffset, onOffsetChange, getEventPosition, getGridPosition]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
     setLastPanPoint(null);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setIsDragging(false);
+    setLastPanPoint(null);
+    setHoverCell(null);
   }, []);
 
   // 渲染画布
@@ -328,10 +356,22 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
     renderCanvas();
   }, [renderCanvas]);
 
+  // 计算相对坐标
+  const getRelativeCoord = () => {
+    if (!hoverCell) return null;
+    if (!originCell) return { x: hoverCell.col + 1, y: hoverCell.row + 1 };
+    return {
+      x: hoverCell.col - originCell.col,
+      y: hoverCell.row - originCell.row,
+    };
+  };
+
+  const coord = getRelativeCoord();
+
   return (
     <div 
       ref={containerRef}
-      className="w-full h-full flex items-center justify-center overflow-hidden bg-gray-100"
+      className="w-full h-full flex items-center justify-center overflow-hidden bg-gray-100 relative"
       style={{ touchAction: 'none' }}
     >
       <div
@@ -342,7 +382,7 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
       >
         <canvas
           ref={canvasRef}
-          className="cursor-crosshair border border-gray-300"
+          className={`border border-gray-300 ${isSettingOrigin ? 'cursor-crosshair' : 'cursor-crosshair'}`}
           onClick={handleClick}
           onWheel={handleWheel}
           onTouchStart={handleTouchStart}
@@ -351,9 +391,37 @@ const FocusCanvas: React.FC<FocusCanvasProps> = ({
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
         />
       </div>
+
+      {/* 坐标浮标 */}
+      {coord && hoverCell && (
+        <div
+          className="absolute pointer-events-none z-20 select-none"
+          style={{ top: 8, left: 8 }}
+        >
+          <div className={`px-2 py-1 rounded text-xs font-mono shadow-lg ${
+            isSettingOrigin
+              ? 'bg-blue-600 text-white'
+              : 'bg-black/70 text-white'
+          }`}>
+            {originCell
+              ? `X: ${coord.x > 0 ? '+' : ''}${coord.x}  Y: ${coord.y > 0 ? '+' : ''}${coord.y}`
+              : `行 ${hoverCell.row + 1}  列 ${hoverCell.col + 1}`
+            }
+          </div>
+        </div>
+      )}
+
+      {/* 设置原点提示 */}
+      {isSettingOrigin && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none z-20">
+          <div className="bg-blue-600 text-white text-xs px-3 py-1 rounded-full shadow-lg">
+            点击任意格子设置为坐标原点 (0,0)
+          </div>
+        </div>
+      )}
     </div>
   );
 };

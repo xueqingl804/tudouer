@@ -160,6 +160,18 @@ export default function Home() {
     step: 'select-source'
   });
 
+  // 手动编辑撤销/重做栈（最多 30 步）
+  const [editUndoStack, setEditUndoStack] = useState<Array<{
+    mappedPixelData: MappedPixel[][];
+    colorCounts: { [key: string]: { count: number; color: string } };
+    totalBeadCount: number;
+  }>>([]);
+  const [editRedoStack, setEditRedoStack] = useState<Array<{
+    mappedPixelData: MappedPixel[][];
+    colorCounts: { [key: string]: { count: number; color: string } };
+    totalBeadCount: number;
+  }>>([]);
+
   // 新增：组件挂载状态
   const [isMounted, setIsMounted] = useState<boolean>(false);
 
@@ -198,9 +210,68 @@ export default function Home() {
     setActiveFloatingTool('magnifier');
   };
 
+  // 手动编辑撤销处理函数
+  const handleEditUndo = useCallback(() => {
+    setEditUndoStack(prev => {
+      if (prev.length === 0) return prev;
+      const target = prev[prev.length - 1];
+      // 把当前状态推入 redo 栈（此处捕获的 mappedPixelData 是最新渲染值）
+      if (mappedPixelData && colorCounts !== null) {
+        setEditRedoStack(rs => [
+          ...rs.slice(-29),
+          {
+            mappedPixelData: mappedPixelData.map(r => r.map(p => ({ ...p }))),
+            colorCounts: Object.fromEntries(Object.entries(colorCounts).map(([k, v]) => [k, { ...v }])),
+            totalBeadCount,
+          },
+        ]);
+      }
+      setMappedPixelData(target.mappedPixelData);
+      setColorCounts(target.colorCounts);
+      setTotalBeadCount(target.totalBeadCount);
+      return prev.slice(0, -1);
+    });
+  }, [mappedPixelData, colorCounts, totalBeadCount]);
+
+  // 手动编辑重做处理函数
+  const handleEditRedo = useCallback(() => {
+    setEditRedoStack(prev => {
+      if (prev.length === 0) return prev;
+      const target = prev[prev.length - 1];
+      // 把当前状态推入 undo 栈
+      if (mappedPixelData && colorCounts !== null) {
+        setEditUndoStack(us => [
+          ...us.slice(-29),
+          {
+            mappedPixelData: mappedPixelData.map(r => r.map(p => ({ ...p }))),
+            colorCounts: Object.fromEntries(Object.entries(colorCounts).map(([k, v]) => [k, { ...v }])),
+            totalBeadCount,
+          },
+        ]);
+      }
+      setMappedPixelData(target.mappedPixelData);
+      setColorCounts(target.colorCounts);
+      setTotalBeadCount(target.totalBeadCount);
+      return prev.slice(0, -1);
+    });
+  }, [mappedPixelData, colorCounts, totalBeadCount]);
+
   // 放大镜像素编辑处理函数
   const handleMagnifierPixelEdit = (row: number, col: number, colorData: { key: string; color: string }) => {
     if (!mappedPixelData) return;
+
+    // 保存快照到撤销栈，同时清空重做栈
+    if (colorCounts) {
+      setEditUndoStack(prev => [
+        ...prev.slice(-29),
+        {
+          mappedPixelData: mappedPixelData.map(r => r.map(p => ({ ...p }))),
+          colorCounts: Object.fromEntries(Object.entries(colorCounts).map(([k, v]) => [k, { ...v }])),
+          totalBeadCount,
+        },
+      ]);
+      setEditRedoStack([]);
+    }
     
     // 创建新的像素数据
     const newMappedPixelData = mappedPixelData.map((rowData, r) =>
@@ -991,6 +1062,24 @@ export default function Home() {
     setIsMounted(true);
   }, []);
 
+  // 手动编辑 Ctrl+Z / Ctrl+Y 撤销重做（仅在手动编辑模式下生效）
+  useEffect(() => {
+    if (!isManualColoringMode) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z') {
+          e.preventDefault();
+          handleEditUndo();
+        } else if (e.key === 'y') {
+          e.preventDefault();
+          handleEditRedo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isManualColoringMode, handleEditUndo, handleEditRedo]);
+
 
     // --- Download function (ensure filename includes palette) ---
     const handleDownloadRequest = (options?: GridDownloadOptions) => {
@@ -1391,6 +1480,19 @@ export default function Home() {
 
         // Only update if state changes
         if (newCellData.key !== previousKey || newCellData.isExternal !== wasExternal) {
+          // 保存快照到撤销栈，清空重做栈
+          if (colorCounts) {
+            setEditUndoStack(prev => [
+              ...prev.slice(-29),
+              {
+                mappedPixelData: mappedPixelData.map(r => r.map(p => ({ ...p }))),
+                colorCounts: Object.fromEntries(Object.entries(colorCounts).map(([k, v]) => [k, { ...v }])),
+                totalBeadCount,
+              },
+            ]);
+            setEditRedoStack([]);
+          }
+
           newPixelData[j][i] = newCellData;
           setMappedPixelData(newPixelData);
 
@@ -2151,6 +2253,30 @@ export default function Home() {
         {!isManualColoringMode && originalImageSrc && colorCounts && Object.keys(colorCounts).length > 0 && (
           // Apply dark mode styles to color counts container
           <div className="w-full md:max-w-2xl mt-6 bg-white dark:bg-gray-800 p-4 rounded-lg shadow border border-gray-100 dark:border-gray-700 color-stats-panel">
+
+            {/* 厂家切换 */}
+            <div className="mb-3 pb-3 border-b border-gray-100 dark:border-gray-700">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-gray-600 dark:text-gray-400">切换厂家色号:</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500">当前: {selectedColorSystem}</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {colorSystemOptions.map(option => (
+                  <button
+                    key={option.key}
+                    onClick={() => setSelectedColorSystem(option.key as ColorSystem)}
+                    className={`px-2.5 py-1 text-xs rounded-md border transition-all ${
+                      selectedColorSystem === option.key
+                        ? 'bg-blue-500 text-white border-blue-500'
+                        : 'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:border-blue-400'
+                    }`}
+                  >
+                    {option.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Title color */}
             <h3 className="text-lg font-semibold mb-1 text-gray-700 dark:text-gray-200 text-center">
               去除杂色 
@@ -2171,10 +2297,9 @@ export default function Home() {
                     <li
                       key={hexKey}
                       onClick={() => handleToggleExcludeColor(hexKey)}
-                       // Apply dark mode styles for list items (normal and excluded)
                       className={`flex items-center justify-between p-1.5 rounded cursor-pointer transition-colors ${ 
                         isExcluded
-                          ? 'bg-red-100 dark:bg-red-900/50 hover:bg-red-200 dark:hover:bg-red-800/60 opacity-60 dark:opacity-70' // Darker red background for excluded
+                          ? 'bg-red-100 dark:bg-red-900/50 hover:bg-red-200 dark:hover:bg-red-800/60 opacity-60 dark:opacity-70'
                           : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                       }`}
                       title={isExcluded ? `点击恢复 ${displayColorKey}` : `点击排除 ${displayColorKey}`}
@@ -2359,9 +2484,15 @@ export default function Home() {
           setHighlightColorKey(null);
           setIsMagnifierActive(false);
           setMagnifierSelectionArea(null);
+          setEditUndoStack([]);
+          setEditRedoStack([]);
         }}
         onToggleMagnifier={handleToggleMagnifier}
         isMagnifierActive={isMagnifierActive}
+        onUndo={handleEditUndo}
+        canUndo={editUndoStack.length > 0}
+        onRedo={handleEditRedo}
+        canRedo={editRedoStack.length > 0}
       />
 
       {/* 悬浮调色盘 */}

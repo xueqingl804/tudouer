@@ -71,6 +71,31 @@ export async function consumeLicenseDownload(key: string): Promise<{
   };
 }
 
+// ─── 一次性激活 Token ─────────────────────────────────────────────
+
+export interface ActivationTokenData {
+  downloads: number;   // 激活后密钥对应的下载次数
+  used: boolean;       // 是否已被使用
+  createdAt: string;
+  usedAt?: string;
+  generatedKey?: string;
+}
+
+export async function getActivationToken(token: string): Promise<ActivationTokenData | null> {
+  try {
+    const redis = getRedis();
+    return await redis.get<ActivationTokenData>(`act:${token}`);
+  } catch {
+    return null;
+  }
+}
+
+export async function setActivationToken(token: string, data: ActivationTokenData): Promise<void> {
+  const redis = getRedis();
+  // 激活码保留 180 天
+  await redis.set(`act:${token}`, data, { ex: 180 * 24 * 3600 });
+}
+
 // ─── 订单操作 ────────────────────────────────────────────────────
 
 export async function getOrder(orderId: string): Promise<OrderData | null> {

@@ -9,6 +9,10 @@ interface FloatingToolbarProps {
   onExitManualMode: () => void;
   onToggleMagnifier: () => void;
   isMagnifierActive: boolean;
+  onUndo?: () => void;
+  canUndo?: boolean;
+  onRedo?: () => void;
+  canRedo?: boolean;
 }
 
 const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
@@ -17,7 +21,11 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   onTogglePalette,
   onExitManualMode,
   onToggleMagnifier,
-  isMagnifierActive
+  isMagnifierActive,
+  onUndo,
+  canUndo = false,
+  onRedo,
+  canRedo = false,
 }) => {
   if (!isManualColoringMode) return null;
 
@@ -53,6 +61,42 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         </svg>
       </button>
 
+      {/* 撤销按钮 */}
+      {onUndo && (
+        <button
+          onClick={onUndo}
+          disabled={!canUndo}
+          className={`w-12 h-12 rounded-full shadow-lg transition-all duration-200 flex items-center justify-center ${
+            canUndo
+              ? 'bg-orange-500 text-white hover:bg-orange-600'
+              : 'bg-white dark:bg-gray-800 text-gray-300 dark:text-gray-600 border border-gray-200 dark:border-gray-600 cursor-not-allowed'
+          }`}
+          title={canUndo ? '撤销 (Ctrl+Z)' : '没有可撤销的操作'}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+          </svg>
+        </button>
+      )}
+
+      {/* 重做按钮 */}
+      {onRedo && (
+        <button
+          onClick={onRedo}
+          disabled={!canRedo}
+          className={`w-12 h-12 rounded-full shadow-lg transition-all duration-200 flex items-center justify-center ${
+            canRedo
+              ? 'bg-purple-500 text-white hover:bg-purple-600'
+              : 'bg-white dark:bg-gray-800 text-gray-300 dark:text-gray-600 border border-gray-200 dark:border-gray-600 cursor-not-allowed'
+          }`}
+          title={canRedo ? '重做 (Ctrl+Y)' : '没有可重做的操作'}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a8 8 0 00-8 8v2m18-10l-6 6m6-6l-6-6" />
+          </svg>
+        </button>
+      )}
+
       {/* 退出手动编辑模式按钮 */}
       <button
         onClick={onExitManualMode}
@@ -67,4 +111,4 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   );
 };
 
-export default FloatingToolbar; 
+export default FloatingToolbar;

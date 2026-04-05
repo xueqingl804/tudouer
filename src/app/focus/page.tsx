@@ -21,6 +21,8 @@ import CelebrationAnimation from '../../components/CelebrationAnimation';
 import CompletionCard from '../../components/CompletionCard';
 import { getColorKeyByHex, ColorSystem } from '../../utils/colorSystemUtils';
 
+type FillMode = 'fill' | 'outline';
+
 interface FocusModeState {
   // 当前状态
   currentColor: string;
@@ -36,7 +38,7 @@ interface FocusModeState {
   
   // 引导状态 - 改为区域推荐
   recommendedRegion: { row: number; col: number }[] | null;
-  recommendedCell: { row: number; col: number } | null; // 保留用于定位显示
+  recommendedCell: { row: number; col: number } | null;
   guidanceMode: 'nearest' | 'largest' | 'edge-first';
   
   // UI状态
@@ -45,17 +47,24 @@ interface FocusModeState {
   isPaused: boolean;
   
   // 计时器状态
-  startTime: number; // 开始时间戳
-  totalElapsedTime: number; // 总计用时（秒）
-  lastResumeTime: number; // 最后一次恢复的时间戳
+  startTime: number;
+  totalElapsedTime: number;
+  lastResumeTime: number;
   
   // 显示设置
-  gridSectionInterval: number; // 网格分区间隔
-  showSectionLines: boolean; // 是否显示分割线
-  sectionLineColor: string; // 分割线颜色
-  enableCelebration: boolean; // 是否启用庆祝动画
-  showCelebration: boolean; // 是否显示庆祝动画
-  showCompletionCard: boolean; // 是否显示完成打卡图
+  gridSectionInterval: number;
+  showSectionLines: boolean;
+  sectionLineColor: string;
+  enableCelebration: boolean;
+  showCelebration: boolean;
+  showCompletionCard: boolean;
+
+  // 填充模式
+  fillMode: FillMode;
+
+  // 坐标原点
+  originCell: { row: number; col: number } | null;
+  isSettingOrigin: boolean;
 }
 
 export default function FocusMode() {
@@ -88,8 +97,17 @@ export default function FocusMode() {
     sectionLineColor: '#007acc',
     enableCelebration: true,
     showCelebration: false,
-    showCompletionCard: false
+    showCompletionCard: false,
+    fillMode: 'fill',
+    originCell: null,
+    isSettingOrigin: false,
   });
+
+  // 撤销栈：保存标记前的 completedCells 快照
+  const [undoStack, setUndoStack] = useState<Array<{
+    completedCells: Set<string>;
+    colorProgress: Record<string, { completed: number; total: number }>;
+  }>>([]);
 
   // 可用颜色列表
   const [availableColors, setAvailableColors] = useState<Array<{
@@ -346,7 +364,23 @@ export default function FocusMode() {
     }));
   }, [calculateRecommendedRegion]);
 
-  // 处理格子点击 - 改为区域洪水填充标记
+  // 获取区域的轮廓格子（四邻域中有不同颜色或边界的格子）
+  const getBorderCells = useCallback((region: {row: number; col: number}[], color: string): {row: number; col: number}[] => {
+    if (!mappedPixelData) return region;
+    const M = mappedPixelData.length;
+    const N = mappedPixelData[0].length;
+    return region.filter(({ row: r, col: c }) => {
+      return (
+        r === 0 || r === M - 1 || c === 0 || c === N - 1 ||
+        mappedPixelData[r - 1][c].color !== color ||
+        mappedPixelData[r + 1][c].color !== color ||
+        mappedPixelData[r][c - 1].color !== color ||
+        mappedPixelData[r][c + 1].color !== color
+      );
+    });
+  }, [mappedPixelData]);
+
+  // 处理格子点击 - 区域洪水填充标记（支持轮廓/色块模式）
   const handleCellClick = useCallback((row: number, col: number) => {
     if (!mappedPixelData) return;
 
@@ -355,9 +389,27 @@ export default function FocusMode() {
     // 如果点击的是当前颜色的格子，对整个连通区域进行标记
     if (cellColor === focusState.currentColor) {
       // 获取点击位置的连通区域
-      const region = getConnectedRegion(mappedPixelData, row, col, focusState.currentColor);
+      const fullRegion = getConnectedRegion(mappedPixelData, row, col, focusState.currentColor);
       
+      if (fullRegion.length === 0) return;
+
+      // 根据填充模式选择操作的格子集合
+      const region = focusState.fillMode === 'outline'
+        ? getBorderCells(fullRegion, focusState.currentColor)
+        : fullRegion;
+
       if (region.length === 0) return;
+
+      // 推入撤销栈（深拷贝 colorProgress，completedCells 用新 Set）
+      setUndoStack(prev => [
+        ...prev.slice(-29),  // 最多保留 30 步
+        {
+          completedCells: new Set(focusState.completedCells),
+          colorProgress: Object.fromEntries(
+            Object.entries(focusState.colorProgress).map(([k, v]) => [k, { ...v }])
+          ),
+        },
+      ]);
 
       const newCompletedCells = new Set(focusState.completedCells);
       
@@ -365,12 +417,10 @@ export default function FocusMode() {
       const isCurrentlyCompleted = isRegionCompleted(region, focusState.completedCells);
       
       if (isCurrentlyCompleted) {
-        // 如果区域已完成，取消整个区域的完成状态
         region.forEach(({ row: r, col: c }) => {
           newCompletedCells.delete(`${r},${c}`);
         });
       } else {
-        // 如果区域未完成，标记整个区域为完成
         region.forEach(({ row: r, col: c }) => {
           newCompletedCells.add(`${r},${c}`);
         });
@@ -436,12 +486,54 @@ export default function FocusMode() {
         return color;
       }));
     }
-  }, [mappedPixelData, focusState.currentColor, focusState.completedCells, focusState.colorProgress, focusState.enableCelebration]);
+  }, [mappedPixelData, focusState.currentColor, focusState.completedCells, focusState.colorProgress, focusState.enableCelebration, focusState.fillMode, getBorderCells]);
 
   // 处理颜色切换
   const handleColorChange = useCallback((color: string) => {
     setFocusState(prev => ({ ...prev, currentColor: color, showColorPanel: false }));
   }, []);
+
+  // 撤销操作
+  const handleUndo = useCallback(() => {
+    setUndoStack(prev => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      setFocusState(s => ({
+        ...s,
+        completedCells: last.completedCells,
+        colorProgress: last.colorProgress,
+      }));
+      // 同步更新 availableColors
+      setAvailableColors(colors =>
+        colors.map(c => ({
+          ...c,
+          completed: last.colorProgress[c.color]?.completed ?? 0,
+        }))
+      );
+      return prev.slice(0, -1);
+    });
+  }, []);
+
+  // 设置坐标原点
+  const handleOriginSet = useCallback((row: number, col: number) => {
+    setFocusState(prev => ({
+      ...prev,
+      originCell: { row, col },
+      isSettingOrigin: false,
+    }));
+  }, []);
+
+  // Ctrl+Z 全局撤销（在 handleUndo 声明后注册）
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        handleUndo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo]);
 
   // 处理定位到推荐位置
   const handleLocateRecommended = useCallback(() => {
@@ -564,6 +656,22 @@ export default function FocusMode() {
   const progressPercentage = currentColorInfo ? 
     Math.round((currentColorInfo.completed / currentColorInfo.total) * 100) : 0;
 
+  // 计算总体进度和预估剩余时间
+  const totalCells = availableColors.reduce((sum, c) => sum + c.total, 0);
+  const completedTotal = availableColors.reduce((sum, c) => sum + c.completed, 0);
+  const totalProgress = totalCells > 0 ? completedTotal / totalCells : 0;
+
+  const estimateRemainingTime = (): string | undefined => {
+    if (completedTotal === 0 || focusState.totalElapsedTime === 0) return undefined;
+    const rate = focusState.totalElapsedTime / completedTotal; // seconds per cell
+    const remaining = (totalCells - completedTotal) * rate;
+    if (remaining <= 0) return undefined;
+    const h = Math.floor(remaining / 3600);
+    const m = Math.floor((remaining % 3600) / 60);
+    if (h > 0) return `${h}h${m}m`;
+    return `${m}分钟`;
+  };
+
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       {/* 顶部导航栏 */}
@@ -613,6 +721,9 @@ export default function FocusMode() {
           onCellClick={handleCellClick}
           onScaleChange={(scale: number) => setFocusState(prev => ({ ...prev, canvasScale: scale }))}
           onOffsetChange={(offset: { x: number; y: number }) => setFocusState(prev => ({ ...prev, canvasOffset: offset }))}
+          originCell={focusState.originCell}
+          isSettingOrigin={focusState.isSettingOrigin}
+          onOriginSet={handleOriginSet}
         />
       </div>
 
@@ -630,6 +741,20 @@ export default function FocusMode() {
         onPause={handlePauseToggle}
         isPaused={focusState.isPaused}
         elapsedTime={formatTime(focusState.totalElapsedTime)}
+        onUndo={handleUndo}
+        canUndo={undoStack.length > 0}
+        totalProgress={totalProgress}
+        estimatedRemainingTime={estimateRemainingTime()}
+        fillMode={focusState.fillMode}
+        onFillModeToggle={() => setFocusState(prev => ({
+          ...prev,
+          fillMode: prev.fillMode === 'fill' ? 'outline' : 'fill',
+        }))}
+        isSettingOrigin={focusState.isSettingOrigin}
+        onToggleSetOrigin={() => setFocusState(prev => ({
+          ...prev,
+          isSettingOrigin: !prev.isSettingOrigin,
+        }))}
       />
 
       {/* 颜色选择面板 */}
