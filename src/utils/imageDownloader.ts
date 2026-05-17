@@ -1,6 +1,7 @@
 import { GridDownloadOptions } from '../types/downloadTypes';
 import { MappedPixel, PaletteColor } from './pixelation';
 import { getDisplayColorKey, getColorKeyByHex, ColorSystem } from './colorSystemUtils';
+import QRCode from 'qrcode';
 
 // 用于获取对比色的工具函数 - 从page.tsx复制
 function getContrastColor(hex: string): string {
@@ -229,10 +230,28 @@ export async function downloadImage({
     return;
   }
   
-  // 加载二维码图片
-  const qrCodeImage = new Image();
-  qrCodeImage.src = '/website_qrcode.png'; // 使用public目录中的图片
-  
+  // 动态生成网站二维码
+  const websiteQrDataUrl = await QRCode.toDataURL('https://perlertudou.com', {
+    width: 200,
+    margin: 1,
+    color: { dark: '#000000', light: '#FFFFFF' },
+  });
+  const websiteQrImage = new Image();
+  await new Promise<void>((resolve) => {
+    websiteQrImage.onload = () => resolve();
+    websiteQrImage.onerror = () => resolve();
+    websiteQrImage.src = websiteQrDataUrl;
+  });
+
+  // 加载抖音二维码图片
+  const douyinQrImage = new Image();
+  await new Promise<void>((resolve) => {
+    if (douyinQrImage.complete && douyinQrImage.naturalWidth !== 0) { resolve(); return; }
+    douyinQrImage.onload = () => resolve();
+    douyinQrImage.onerror = () => resolve();
+    douyinQrImage.src = '/douyin_qrcode.png';
+  });
+
   // 主要下载处理函数
   const processDownload = () => {
     const { N, M } = gridDimensions; // 此时已确保gridDimensions不为null
@@ -282,8 +301,9 @@ export async function downloadImage({
     // 计算标题文字大小 - 与总体宽度相关而不是单元格大小
     const titleFontSize = Math.max(28, Math.floor(28 * titleBarScale)); // 最小28px，确保可读性
     
-    // 计算二维码大小
-    const qrSize = Math.floor(titleBarHeight * 0.85); // 增大二维码比例
+    // 计算二维码大小（两个并排）
+    const qrSize = Math.floor(titleBarHeight * 0.78);
+    const qrGap = Math.floor(titleBarHeight * 0.08); // 两个二维码之间的间距
     
     // 计算统计区域的大小
     if (includeStats && colorCounts) {
@@ -418,34 +438,39 @@ export async function downloadImage({
     ctx.lineTo(downloadWidth, separatorY);
     ctx.stroke();
     
-    // 8. 二维码区域 - 重新设计
-    const qrX = downloadWidth - qrSize - titleBarHeight * 0.15;
+    // 8. 两个二维码区域：右边是网站QR，左边是抖音QR
+    const qrMarginRight = Math.floor(titleBarHeight * 0.15);
+    const websiteQrX = downloadWidth - qrSize - qrMarginRight;
+    const douyinQrX = websiteQrX - qrGap - qrSize;
     const qrY = (titleBarHeight - qrSize) / 2;
-    
-    // 二维码背景 - 圆角，更现代
-    ctx.fillStyle = '#FFFFFF';
-    ctx.beginPath();
-    ctx.roundRect(qrX, qrY, qrSize, qrSize, qrSize * 0.08);
-    ctx.fill();
-    
-    // 绘制二维码图片或占位符
-    if (qrCodeImage.complete && qrCodeImage.naturalWidth !== 0) {
-      // 使用裁剪区域绘制圆角二维码
-      ctx.save();
+
+    const drawQrBlock = (img: HTMLImageElement, x: number, label: string) => {
+      // 白色圆角背景
+      ctx.fillStyle = '#FFFFFF';
       ctx.beginPath();
-      ctx.roundRect(qrX, qrY, qrSize, qrSize, qrSize * 0.08);
-      ctx.clip();
-      ctx.drawImage(qrCodeImage, qrX, qrY, qrSize, qrSize);
-      ctx.restore();
-    } else {
-      // 占位符设计
-      ctx.fillStyle = '#6366F1';
-      const qrPlaceholderFontSize = Math.max(10, Math.floor(14 * titleBarScale));
-      ctx.font = `500 ${qrPlaceholderFontSize}px system-ui, -apple-system, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('扫码访问', qrX + qrSize / 2, qrY + qrSize / 2);
-    }
+      ctx.roundRect(x, qrY, qrSize, qrSize, qrSize * 0.08);
+      ctx.fill();
+
+      // 绘制图片
+      if (img.complete && img.naturalWidth !== 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(x, qrY, qrSize, qrSize, qrSize * 0.08);
+        ctx.clip();
+        ctx.drawImage(img, x, qrY, qrSize, qrSize);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = '#6366F1';
+        const ph = Math.max(10, Math.floor(14 * titleBarScale));
+        ctx.font = `500 ${ph}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, x + qrSize / 2, qrY + qrSize / 2);
+      }
+    };
+
+    drawQrBlock(douyinQrImage, douyinQrX, '抖音');
+    drawQrBlock(websiteQrImage, websiteQrX, '扫码访问');
   
     console.log(`Generating download grid image: ${downloadWidth}x${downloadHeight}`);
     const fontSize = Math.max(8, Math.floor(downloadCellSize * 0.4));
@@ -839,14 +864,6 @@ export async function downloadImage({
     }
   };
   
-  // 图片加载后处理，或在加载失败时使用占位符
-  if (qrCodeImage.complete) {
-    processDownload();
-  } else {
-    qrCodeImage.onload = processDownload;
-    qrCodeImage.onerror = () => {
-      console.warn("二维码图片加载失败，将使用占位符");
-      processDownload();
-    };
-  }
+  // 图片已预加载完毕，直接执行下载
+  processDownload();
 } 
