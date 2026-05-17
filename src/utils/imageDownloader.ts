@@ -243,15 +243,6 @@ export async function downloadImage({
     websiteQrImage.src = websiteQrDataUrl;
   });
 
-  // 加载抖音二维码图片
-  const douyinQrImage = new Image();
-  await new Promise<void>((resolve) => {
-    if (douyinQrImage.complete && douyinQrImage.naturalWidth !== 0) { resolve(); return; }
-    douyinQrImage.onload = () => resolve();
-    douyinQrImage.onerror = () => resolve();
-    douyinQrImage.src = '/douyin_qrcode.png';
-  });
-
   // 主要下载处理函数
   const processDownload = () => {
     const { N, M } = gridDimensions; // 此时已确保gridDimensions不为null
@@ -301,9 +292,8 @@ export async function downloadImage({
     // 计算标题文字大小 - 与总体宽度相关而不是单元格大小
     const titleFontSize = Math.max(28, Math.floor(28 * titleBarScale)); // 最小28px，确保可读性
     
-    // 计算二维码大小（两个并排）
+    // 计算二维码大小
     const qrSize = Math.floor(titleBarHeight * 0.78);
-    const qrGap = Math.floor(titleBarHeight * 0.08); // 两个二维码之间的间距
     
     // 计算统计区域的大小
     if (includeStats && colorCounts) {
@@ -438,39 +428,47 @@ export async function downloadImage({
     ctx.lineTo(downloadWidth, separatorY);
     ctx.stroke();
     
-    // 8. 两个二维码区域：右边是网站QR，左边是抖音QR
+    // 8. 右侧区域：网站二维码 + 左侧联系信息文字块
     const qrMarginRight = Math.floor(titleBarHeight * 0.15);
     const websiteQrX = downloadWidth - qrSize - qrMarginRight;
-    const douyinQrX = websiteQrX - qrGap - qrSize;
     const qrY = (titleBarHeight - qrSize) / 2;
 
-    const drawQrBlock = (img: HTMLImageElement, x: number, label: string) => {
-      // 白色圆角背景
-      ctx.fillStyle = '#FFFFFF';
+    // 8a. 网站二维码
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.roundRect(websiteQrX, qrY, qrSize, qrSize, qrSize * 0.08);
+    ctx.fill();
+    if (websiteQrImage.complete && websiteQrImage.naturalWidth !== 0) {
+      ctx.save();
       ctx.beginPath();
-      ctx.roundRect(x, qrY, qrSize, qrSize, qrSize * 0.08);
-      ctx.fill();
+      ctx.roundRect(websiteQrX, qrY, qrSize, qrSize, qrSize * 0.08);
+      ctx.clip();
+      ctx.drawImage(websiteQrImage, websiteQrX, qrY, qrSize, qrSize);
+      ctx.restore();
+    }
 
-      // 绘制图片
-      if (img.complete && img.naturalWidth !== 0) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.roundRect(x, qrY, qrSize, qrSize, qrSize * 0.08);
-        ctx.clip();
-        ctx.drawImage(img, x, qrY, qrSize, qrSize);
-        ctx.restore();
-      } else {
-        ctx.fillStyle = '#6366F1';
-        const ph = Math.max(10, Math.floor(14 * titleBarScale));
-        ctx.font = `500 ${ph}px system-ui, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(label, x + qrSize / 2, qrY + qrSize / 2);
-      }
-    };
-
-    drawQrBlock(douyinQrImage, douyinQrX, '抖音');
-    drawQrBlock(websiteQrImage, websiteQrX, '扫码访问');
+    // 8b. 联系信息文字块（二维码左侧）
+    const infoBlockGap = Math.floor(titleBarHeight * 0.12);
+    const infoBlockRight = websiteQrX - infoBlockGap;
+    const infoFontBase = Math.max(11, Math.floor(13 * titleBarScale));
+    const lineH = Math.floor(infoFontBase * 1.7);
+    const lines = [
+      { text: '购买 / 更多资讯', size: infoFontBase, weight: '600', alpha: 1.0 },
+      { text: '📱 抖音：晚安土豆殿下', size: Math.floor(infoFontBase * 0.88), weight: '400', alpha: 0.9 },
+      { text: '🔢 抖音号：31387730818', size: Math.floor(infoFontBase * 0.88), weight: '400', alpha: 0.75 },
+    ];
+    const totalTextH = lines.length * lineH;
+    let lineY = titleBarHeight / 2 - totalTextH / 2 + lineH * 0.5;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (const ln of lines) {
+      ctx.globalAlpha = ln.alpha;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = `${ln.weight} ${ln.size}px system-ui, -apple-system, sans-serif`;
+      ctx.fillText(ln.text, infoBlockRight, lineY);
+      lineY += lineH;
+    }
+    ctx.globalAlpha = 1.0;
   
     console.log(`Generating download grid image: ${downloadWidth}x${downloadHeight}`);
     const fontSize = Math.max(8, Math.floor(downloadCellSize * 0.4));
