@@ -28,8 +28,8 @@ interface FloatingToolbarProps {
 const TOOLS: { tool: DrawingTool; label: string; title: string; icon: React.ReactNode }[] = [
   {
     tool: 'brush',
-    label: '笔',
-    title: '画笔',
+    label: '画笔',
+    title: '画笔 — 单击或拖拽涂色，可选笔刷大小',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
         <path d="M20.71 4.04a1 1 0 0 0 0-1.41l-1.34-1.34a1 1 0 0 0-1.41 0l-1.83 1.83 2.75 2.75M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"/>
@@ -39,7 +39,7 @@ const TOOLS: { tool: DrawingTool; label: string; title: string; icon: React.Reac
   {
     tool: 'eyedropper',
     label: '取色',
-    title: '取色器 - 点击格子提取颜色',
+    title: '取色器 — 点击格子提取颜色，自动切回画笔',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
         <path d="M20.71 5.63l-2.34-2.34a1 1 0 0 0-1.41 0l-3.12 3.12-1.41-1.42-1.42 1.42 1.41 1.41-6.6 6.6A2 2 0 0 0 5 16v3h3a2 2 0 0 0 1.42-.59l6.6-6.6 1.41 1.42 1.42-1.42-1.42-1.41 3.12-3.12a1 1 0 0 0 .16-1.25z"/>
@@ -48,8 +48,8 @@ const TOOLS: { tool: DrawingTool; label: string; title: string; icon: React.Reac
   },
   {
     tool: 'line',
-    label: '线',
-    title: '直线工具 - 拖拽绘制直线',
+    label: '直线',
+    title: '直线 — 拖拽绘制一条直线',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
         <line x1="3" y1="21" x2="21" y2="3"/>
@@ -58,8 +58,8 @@ const TOOLS: { tool: DrawingTool; label: string; title: string; icon: React.Reac
   },
   {
     tool: 'rect',
-    label: '□',
-    title: '矩形边框 - 拖拽绘制矩形轮廓',
+    label: '空心框',
+    title: '矩形边框 — 拖拽绘制空心矩形',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <rect x="3" y="5" width="18" height="14" rx="1"/>
@@ -68,8 +68,8 @@ const TOOLS: { tool: DrawingTool; label: string; title: string; icon: React.Reac
   },
   {
     tool: 'rect-fill',
-    label: '■',
-    title: '矩形填充 - 拖拽绘制填充矩形',
+    label: '实心框',
+    title: '矩形填充 — 拖拽绘制填充矩形',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
         <rect x="3" y="5" width="18" height="14" rx="1"/>
@@ -78,8 +78,8 @@ const TOOLS: { tool: DrawingTool; label: string; title: string; icon: React.Reac
   },
   {
     tool: 'circle',
-    label: '○',
-    title: '椭圆边框 - 拖拽绘制椭圆轮廓',
+    label: '空心圆',
+    title: '椭圆边框 — 拖拽绘制空心椭圆/圆',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <ellipse cx="12" cy="12" rx="9" ry="6"/>
@@ -88,8 +88,8 @@ const TOOLS: { tool: DrawingTool; label: string; title: string; icon: React.Reac
   },
   {
     tool: 'circle-fill',
-    label: '●',
-    title: '椭圆填充 - 拖拽绘制填充椭圆',
+    label: '实心圆',
+    title: '椭圆填充 — 拖拽绘制填充椭圆',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
         <ellipse cx="12" cy="12" rx="9" ry="6"/>
@@ -98,8 +98,8 @@ const TOOLS: { tool: DrawingTool; label: string; title: string; icon: React.Reac
   },
   {
     tool: 'select',
-    label: '选',
-    title: '框选工具 - 拖拽选定区域后进行对称操作',
+    label: '对称选区',
+    title: '框选对称 — 拖拽选定区域，然后选择左右/上下对称方向',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="3 2">
         <rect x="3" y="3" width="18" height="18" rx="1"/>
@@ -137,19 +137,20 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       {/* ── 绘图工具选择面板 ── */}
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-2xl shadow-lg p-2 flex flex-col gap-1">
         <p className="text-[9px] text-center text-gray-400 dark:text-gray-500 font-medium mb-0.5">工具</p>
-        <div className="grid grid-cols-2 gap-1">
-          {TOOLS.map(({ tool, title, icon }) => (
+        <div className="grid grid-cols-2 gap-1.5">
+          {TOOLS.map(({ tool, title, label, icon }) => (
             <button
               key={tool}
               onClick={() => onToolChange?.(tool)}
               title={title}
-              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-150 ${
+              className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-1 transition-all duration-150 ${
                 drawingTool === tool
                   ? 'bg-blue-500 text-white shadow-md scale-105'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-gray-600'
               }`}
             >
               {icon}
+              <span className="text-[9px] leading-none font-semibold tracking-tight">{label}</span>
             </button>
           ))}
         </div>
