@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { DrawingTool } from '../utils/drawingUtils';
 
 interface FloatingToolbarProps {
   isManualColoringMode: boolean;
@@ -13,7 +14,87 @@ interface FloatingToolbarProps {
   canUndo?: boolean;
   onRedo?: () => void;
   canRedo?: boolean;
+  // 绘图工具
+  drawingTool?: DrawingTool;
+  onToolChange?: (tool: DrawingTool) => void;
+  brushSize?: number;
+  onBrushSizeChange?: (size: number) => void;
 }
+
+const TOOLS: { tool: DrawingTool; label: string; title: string; icon: React.ReactNode }[] = [
+  {
+    tool: 'brush',
+    label: '笔',
+    title: '画笔',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M20.71 4.04a1 1 0 0 0 0-1.41l-1.34-1.34a1 1 0 0 0-1.41 0l-1.83 1.83 2.75 2.75M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"/>
+      </svg>
+    ),
+  },
+  {
+    tool: 'eyedropper',
+    label: '取色',
+    title: '取色器 - 点击格子提取颜色',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M20.71 5.63l-2.34-2.34a1 1 0 0 0-1.41 0l-3.12 3.12-1.41-1.42-1.42 1.42 1.41 1.41-6.6 6.6A2 2 0 0 0 5 16v3h3a2 2 0 0 0 1.42-.59l6.6-6.6 1.41 1.42 1.42-1.42-1.42-1.41 3.12-3.12a1 1 0 0 0 .16-1.25z"/>
+      </svg>
+    ),
+  },
+  {
+    tool: 'line',
+    label: '线',
+    title: '直线工具 - 拖拽绘制直线',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+        <line x1="3" y1="21" x2="21" y2="3"/>
+      </svg>
+    ),
+  },
+  {
+    tool: 'rect',
+    label: '□',
+    title: '矩形边框 - 拖拽绘制矩形轮廓',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="3" y="5" width="18" height="14" rx="1"/>
+      </svg>
+    ),
+  },
+  {
+    tool: 'rect-fill',
+    label: '■',
+    title: '矩形填充 - 拖拽绘制填充矩形',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+        <rect x="3" y="5" width="18" height="14" rx="1"/>
+      </svg>
+    ),
+  },
+  {
+    tool: 'circle',
+    label: '○',
+    title: '椭圆边框 - 拖拽绘制椭圆轮廓',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <ellipse cx="12" cy="12" rx="9" ry="6"/>
+      </svg>
+    ),
+  },
+  {
+    tool: 'circle-fill',
+    label: '●',
+    title: '椭圆填充 - 拖拽绘制填充椭圆',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+        <ellipse cx="12" cy="12" rx="9" ry="6"/>
+      </svg>
+    ),
+  },
+];
+
+const BRUSH_SIZES = [1, 3, 5];
 
 const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   isManualColoringMode,
@@ -26,12 +107,61 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   canUndo = false,
   onRedo,
   canRedo = false,
+  drawingTool = 'brush',
+  onToolChange,
+  brushSize = 1,
+  onBrushSizeChange,
 }) => {
   if (!isManualColoringMode) return null;
 
   return (
     <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2">
-      {/* 调色盘开关按钮 */}
+
+      {/* ── 绘图工具选择面板 ── */}
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-2xl shadow-lg p-2 flex flex-col gap-1">
+        <p className="text-[9px] text-center text-gray-400 dark:text-gray-500 font-medium mb-0.5">工具</p>
+        <div className="grid grid-cols-2 gap-1">
+          {TOOLS.map(({ tool, title, icon }) => (
+            <button
+              key={tool}
+              onClick={() => onToolChange?.(tool)}
+              title={title}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-150 ${
+                drawingTool === tool
+                  ? 'bg-blue-500 text-white shadow-md scale-105'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-gray-600'
+              }`}
+            >
+              {icon}
+            </button>
+          ))}
+        </div>
+
+        {/* 画笔尺寸（仅画笔工具显示） */}
+        {drawingTool === 'brush' && (
+          <>
+            <p className="text-[9px] text-center text-gray-400 dark:text-gray-500 font-medium mt-1">笔刷大小</p>
+            <div className="flex gap-1 justify-center">
+              {BRUSH_SIZES.map(s => (
+                <button
+                  key={s}
+                  onClick={() => onBrushSizeChange?.(s)}
+                  title={`笔刷 ${s}×${s}`}
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold transition-all ${
+                    brushSize === s
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ── 调色盘 ── */}
       <button
         onClick={onTogglePalette}
         className={`w-12 h-12 rounded-full shadow-lg transition-all duration-200 flex items-center justify-center ${
@@ -46,7 +176,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         </svg>
       </button>
 
-      {/* 放大镜按钮 */}
+      {/* ── 放大镜 ── */}
       <button
         onClick={onToggleMagnifier}
         className={`w-12 h-12 rounded-full shadow-lg transition-all duration-200 flex items-center justify-center ${
@@ -61,7 +191,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         </svg>
       </button>
 
-      {/* 撤销按钮 */}
+      {/* ── 撤销 ── */}
       {onUndo && (
         <button
           onClick={onUndo}
@@ -79,7 +209,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         </button>
       )}
 
-      {/* 重做按钮 */}
+      {/* ── 重做 ── */}
       {onRedo && (
         <button
           onClick={onRedo}
@@ -97,7 +227,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         </button>
       )}
 
-      {/* 退出手动编辑模式按钮 */}
+      {/* ── 退出 ── */}
       <button
         onClick={onExitManualMode}
         className="w-12 h-12 rounded-full bg-red-500 text-white shadow-lg hover:bg-red-600 transition-all duration-200 flex items-center justify-center"

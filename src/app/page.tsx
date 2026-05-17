@@ -30,6 +30,8 @@ import {
   ColorSystem 
 } from '../utils/colorSystemUtils';
 
+import { DrawingTool, GridCell, getPreviewCells, filterCells } from '../utils/drawingUtils';
+
 // 添加自定义动画样式
 const floatAnimation = `
   @keyframes float {
@@ -160,6 +162,12 @@ export default function Home() {
     step: 'select-source'
   });
 
+  // 绘图工具状态
+  const [drawingTool, setDrawingTool] = useState<DrawingTool>('brush');
+  const [brushSize, setBrushSize] = useState<number>(1);
+  const [drawDragStart, setDrawDragStart] = useState<GridCell | null>(null);
+  const [previewCells, setPreviewCells] = useState<GridCell[]>([]);
+
   // 手动编辑撤销/重做栈（最多 30 步）
   const [editUndoStack, setEditUndoStack] = useState<Array<{
     mappedPixelData: MappedPixel[][];
@@ -255,6 +263,97 @@ export default function Home() {
       return prev.slice(0, -1);
     });
   }, [mappedPixelData, colorCounts, totalBeadCount]);
+
+  // ── 绘图工具回调 ──────────────────────────────────────────────────────────
+  /** 把多个格子染成当前 selectedColor 并保存 undo 快照 */
+  const applyDrawCells = useCallback((cells: GridCell[]) => {
+    if (!mappedPixelData || !gridDimensions || !selectedColor) return;
+    const { N, M } = gridDimensions;
+    const filtered = filterCells(cells, N, M);
+    if (filtered.length === 0) return;
+
+    // 保存 undo 快照
+    setEditUndoStack(prev => [
+      ...prev.slice(-29),
+      {
+        mappedPixelData: mappedPixelData.map(r => r.map(p => ({ ...p }))),
+        colorCounts: Object.fromEntries(Object.entries(colorCounts ?? {}).map(([k, v]) => [k, { ...v }])),
+        totalBeadCount,
+      },
+    ]);
+    setEditRedoStack([]);
+
+    const newData = mappedPixelData.map(r => r.map(p => ({ ...p })));
+    const newCounts: { [key: string]: { count: number; color: string } } = Object.fromEntries(
+      Object.entries(colorCounts ?? {}).map(([k, v]) => [k, { ...v }])
+    );
+
+    for (const { row, col } of filtered) {
+      const cell = newData[row]?.[col];
+      if (!cell || cell.isExternal) continue;
+
+      const oldKey = cell.key ?? '';
+      const newKey = selectedColor.key ?? '';
+
+      // 减少旧颜色计数
+      if (oldKey && newCounts[oldKey]) {
+        newCounts[oldKey].count = Math.max(0, newCounts[oldKey].count - 1);
+        if (newCounts[oldKey].count === 0) delete newCounts[oldKey];
+      }
+      // 增加新颜色计数
+      if (newKey && newKey !== 'TRANSPARENT') {
+        if (newCounts[newKey]) {
+          newCounts[newKey].count++;
+        } else {
+          newCounts[newKey] = { count: 1, color: selectedColor.color };
+        }
+        newData[row][col] = { ...selectedColor, isExternal: false };
+      } else {
+        newData[row][col] = { key: 'TRANSPARENT', color: 'transparent', isExternal: false };
+      }
+    }
+
+    const newTotal = Object.values(newCounts).reduce((s, v) => s + v.count, 0);
+    setMappedPixelData(newData);
+    setColorCounts(newCounts);
+    setTotalBeadCount(newTotal);
+  }, [mappedPixelData, gridDimensions, selectedColor, colorCounts, totalBeadCount]);
+
+  const handleDrawStart = useCallback((row: number, col: number) => {
+    setDrawDragStart({ row, col });
+    if (drawingTool === 'brush') {
+      // 画笔：立即上色
+      if (mappedPixelData && gridDimensions) {
+        const cells = filterCells(
+          [{ row, col }, ...([3, 5].includes(brushSize)
+            ? getPreviewCells('brush', row, col, row, col, brushSize).slice(1)
+            : [])],
+          gridDimensions.N, gridDimensions.M
+        );
+        applyDrawCells(getPreviewCells('brush', row, col, row, col, brushSize));
+      }
+    }
+  }, [drawingTool, brushSize, mappedPixelData, gridDimensions, applyDrawCells]);
+
+  const handleDrawMove = useCallback((row: number, col: number) => {
+    if (!gridDimensions) return;
+    if (drawingTool === 'brush' && drawDragStart) {
+      // 画笔拖拽时持续上色
+      applyDrawCells(getPreviewCells('brush', row, col, row, col, brushSize));
+      return;
+    }
+    if (!drawDragStart || drawingTool === 'eyedropper') return;
+    const cells = getPreviewCells(drawingTool, drawDragStart.row, drawDragStart.col, row, col, brushSize);
+    setPreviewCells(filterCells(cells, gridDimensions.N, gridDimensions.M));
+  }, [drawingTool, drawDragStart, brushSize, gridDimensions, applyDrawCells]);
+
+  const handleDrawEnd = useCallback((row: number, col: number) => {
+    if (drawingTool !== 'brush' && drawingTool !== 'eyedropper' && drawDragStart) {
+      applyDrawCells(getPreviewCells(drawingTool, drawDragStart.row, drawDragStart.col, row, col, brushSize));
+    }
+    setPreviewCells([]);
+    setDrawDragStart(null);
+  }, [drawingTool, drawDragStart, brushSize, applyDrawCells]);
 
   // 放大镜像素编辑处理函数
   const handleMagnifierPixelEdit = (row: number, col: number, colorData: { key: string; color: string }) => {
@@ -1458,7 +1557,17 @@ export default function Home() {
         return;
       }
 
-      // Manual Coloring Logic - 保持原有的上色逻辑
+      // 取色器：从格子提取颜色
+      if (isClick && isManualColoringMode && drawingTool === 'eyedropper') {
+        if (cellData && !cellData.isExternal && cellData.key && cellData.key !== TRANSPARENT_KEY) {
+          setSelectedColor({ key: cellData.key, color: cellData.color, isExternal: false });
+          setDrawingTool('brush'); // 取色后自动切回画笔
+          setTooltipData(null);
+        }
+        return;
+      }
+
+      // Manual Coloring Logic - 保持原有的上色逻辑（兼容旧行为，新绘图工具走 handleDraw* 回调）
       if (isClick && isManualColoringMode && selectedColor) {
         // 手动上色模式逻辑保持不变
         // ...现有代码...
@@ -2242,6 +2351,12 @@ export default function Home() {
                     onInteraction={handleCanvasInteraction}
                     highlightColorKey={highlightColorKey}
                     onHighlightComplete={handleHighlightComplete}
+                    drawingTool={drawingTool}
+                    previewCells={previewCells}
+                    selectedColor={selectedColor?.color ?? '#3b82f6'}
+                    onDrawStart={handleDrawStart}
+                    onDrawMove={handleDrawMove}
+                    onDrawEnd={handleDrawEnd}
                   />
                 </div>
               </div>
@@ -2434,6 +2549,9 @@ export default function Home() {
                   setIsManualColoringMode(true); // Enter mode
                   setSelectedColor(null);
                   setTooltipData(null);
+                  setDrawingTool('brush');
+                  setPreviewCells([]);
+                  setDrawDragStart(null);
                 }}
                 className={`w-full py-2.5 px-4 text-sm sm:text-base rounded-lg transition-all duration-300 flex items-center justify-center gap-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-md hover:shadow-lg hover:translate-y-[-1px]`}
               >
@@ -2493,6 +2611,10 @@ export default function Home() {
         canUndo={editUndoStack.length > 0}
         onRedo={handleEditRedo}
         canRedo={editRedoStack.length > 0}
+        drawingTool={drawingTool}
+        onToolChange={(tool) => { setDrawingTool(tool); setPreviewCells([]); setDrawDragStart(null); }}
+        brushSize={brushSize}
+        onBrushSizeChange={setBrushSize}
       />
 
       {/* 悬浮调色盘 */}
