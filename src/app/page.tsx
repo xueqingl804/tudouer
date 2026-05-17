@@ -30,7 +30,7 @@ import {
   ColorSystem 
 } from '../utils/colorSystemUtils';
 
-import { DrawingTool, GridCell, getPreviewCells, filterCells } from '../utils/drawingUtils';
+import { DrawingTool, GridCell, SelectionRect, SymmetryType, getPreviewCells, filterCells } from '../utils/drawingUtils';
 
 // 添加自定义动画样式
 const floatAnimation = `
@@ -167,6 +167,8 @@ export default function Home() {
   const [brushSize, setBrushSize] = useState<number>(1);
   const [drawDragStart, setDrawDragStart] = useState<GridCell | null>(null);
   const [previewCells, setPreviewCells] = useState<GridCell[]>([]);
+  // 选区对称
+  const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
 
   // 手动编辑撤销/重做栈（最多 30 步）
   const [editUndoStack, setEditUndoStack] = useState<Array<{
@@ -321,15 +323,13 @@ export default function Home() {
 
   const handleDrawStart = useCallback((row: number, col: number) => {
     setDrawDragStart({ row, col });
+    if (drawingTool === 'select') {
+      // 开始框选，清掉旧选区
+      setSelectionRect({ r1: row, c1: col, r2: row, c2: col });
+      return;
+    }
     if (drawingTool === 'brush') {
-      // 画笔：立即上色
       if (mappedPixelData && gridDimensions) {
-        const cells = filterCells(
-          [{ row, col }, ...([3, 5].includes(brushSize)
-            ? getPreviewCells('brush', row, col, row, col, brushSize).slice(1)
-            : [])],
-          gridDimensions.N, gridDimensions.M
-        );
         applyDrawCells(getPreviewCells('brush', row, col, row, col, brushSize));
       }
     }
@@ -337,8 +337,12 @@ export default function Home() {
 
   const handleDrawMove = useCallback((row: number, col: number) => {
     if (!gridDimensions) return;
+    if (drawingTool === 'select' && drawDragStart) {
+      // 实时更新选区预览
+      setSelectionRect({ r1: drawDragStart.row, c1: drawDragStart.col, r2: row, c2: col });
+      return;
+    }
     if (drawingTool === 'brush' && drawDragStart) {
-      // 画笔拖拽时持续上色
       applyDrawCells(getPreviewCells('brush', row, col, row, col, brushSize));
       return;
     }
@@ -348,12 +352,86 @@ export default function Home() {
   }, [drawingTool, drawDragStart, brushSize, gridDimensions, applyDrawCells]);
 
   const handleDrawEnd = useCallback((row: number, col: number) => {
+    if (drawingTool === 'select' && drawDragStart) {
+      // 确定最终选区
+      setSelectionRect({ r1: drawDragStart.row, c1: drawDragStart.col, r2: row, c2: col });
+      setDrawDragStart(null);
+      return;
+    }
     if (drawingTool !== 'brush' && drawingTool !== 'eyedropper' && drawDragStart) {
       applyDrawCells(getPreviewCells(drawingTool, drawDragStart.row, drawDragStart.col, row, col, brushSize));
     }
     setPreviewCells([]);
     setDrawDragStart(null);
   }, [drawingTool, drawDragStart, brushSize, applyDrawCells]);
+
+  // 选区对称功能
+  const applySymmetry = useCallback((type: SymmetryType) => {
+    if (!selectionRect || !mappedPixelData || !gridDimensions || !colorCounts) return;
+    const minR = Math.max(0, Math.min(selectionRect.r1, selectionRect.r2));
+    const maxR = Math.min(gridDimensions.M - 1, Math.max(selectionRect.r1, selectionRect.r2));
+    const minC = Math.max(0, Math.min(selectionRect.c1, selectionRect.c2));
+    const maxC = Math.min(gridDimensions.N - 1, Math.max(selectionRect.c1, selectionRect.c2));
+
+    // 保存快照
+    setEditUndoStack(prev => [
+      ...prev.slice(-29),
+      {
+        mappedPixelData: mappedPixelData.map(r => r.map(p => ({ ...p }))),
+        colorCounts: Object.fromEntries(Object.entries(colorCounts).map(([k, v]) => [k, { ...v }])),
+        totalBeadCount,
+      },
+    ]);
+    setEditRedoStack([]);
+
+    const newData = mappedPixelData.map(r => r.map(p => ({ ...p })));
+
+    if (type === 'left-right' || type === 'right-left') {
+      // 水平对称：以选区中心列为轴
+      for (let r = minR; r <= maxR; r++) {
+        for (let offset = 0; offset <= Math.floor((maxC - minC) / 2); offset++) {
+          const leftC = minC + offset;
+          const rightC = maxC - offset;
+          if (leftC === rightC) continue;
+          if (type === 'left-right') {
+            newData[r][rightC] = { ...mappedPixelData[r][leftC] };
+          } else {
+            newData[r][leftC] = { ...mappedPixelData[r][rightC] };
+          }
+        }
+      }
+    } else {
+      // 垂直对称：以选区中心行为轴
+      for (let c = minC; c <= maxC; c++) {
+        for (let offset = 0; offset <= Math.floor((maxR - minR) / 2); offset++) {
+          const topR = minR + offset;
+          const botR = maxR - offset;
+          if (topR === botR) continue;
+          if (type === 'top-bottom') {
+            newData[botR][c] = { ...mappedPixelData[topR][c] };
+          } else {
+            newData[topR][c] = { ...mappedPixelData[botR][c] };
+          }
+        }
+      }
+    }
+
+    // 重新统计颜色
+    const newCounts: { [key: string]: { count: number; color: string } } = {};
+    let total = 0;
+    for (const rowData of newData) {
+      for (const pixel of rowData) {
+        if (!pixel.isExternal && pixel.key && pixel.key !== 'transparent') {
+          if (!newCounts[pixel.key]) newCounts[pixel.key] = { count: 0, color: pixel.color };
+          newCounts[pixel.key].count++;
+          total++;
+        }
+      }
+    }
+    setMappedPixelData(newData);
+    setColorCounts(newCounts);
+    setTotalBeadCount(total);
+  }, [selectionRect, mappedPixelData, gridDimensions, colorCounts, totalBeadCount]);
 
   // 放大镜像素编辑处理函数
   const handleMagnifierPixelEdit = (row: number, col: number, colorData: { key: string; color: string }) => {
@@ -2357,6 +2435,7 @@ export default function Home() {
                     onDrawStart={handleDrawStart}
                     onDrawMove={handleDrawMove}
                     onDrawEnd={handleDrawEnd}
+                    selectionRect={selectionRect}
                   />
                 </div>
               </div>
@@ -2604,6 +2683,8 @@ export default function Home() {
           setMagnifierSelectionArea(null);
           setEditUndoStack([]);
           setEditRedoStack([]);
+          setSelectionRect(null);
+          setDrawingTool('brush');
         }}
         onToggleMagnifier={handleToggleMagnifier}
         isMagnifierActive={isMagnifierActive}
@@ -2615,6 +2696,9 @@ export default function Home() {
         onToolChange={(tool) => { setDrawingTool(tool); setPreviewCells([]); setDrawDragStart(null); }}
         brushSize={brushSize}
         onBrushSizeChange={setBrushSize}
+        selectionRect={selectionRect}
+        onSymmetry={applySymmetry}
+        onClearSelection={() => setSelectionRect(null)}
       />
 
       {/* 悬浮调色盘 */}

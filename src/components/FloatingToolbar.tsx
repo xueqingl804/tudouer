@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { DrawingTool } from '../utils/drawingUtils';
+import { DrawingTool, SelectionRect, SymmetryType } from '../utils/drawingUtils';
 
 interface FloatingToolbarProps {
   isManualColoringMode: boolean;
@@ -19,6 +19,10 @@ interface FloatingToolbarProps {
   onToolChange?: (tool: DrawingTool) => void;
   brushSize?: number;
   onBrushSizeChange?: (size: number) => void;
+  // 选区对称
+  selectionRect?: SelectionRect | null;
+  onSymmetry?: (type: SymmetryType) => void;
+  onClearSelection?: () => void;
 }
 
 const TOOLS: { tool: DrawingTool; label: string; title: string; icon: React.ReactNode }[] = [
@@ -92,6 +96,16 @@ const TOOLS: { tool: DrawingTool; label: string; title: string; icon: React.Reac
       </svg>
     ),
   },
+  {
+    tool: 'select',
+    label: '选',
+    title: '框选工具 - 拖拽选定区域后进行对称操作',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="3 2">
+        <rect x="3" y="3" width="18" height="18" rx="1"/>
+      </svg>
+    ),
+  },
 ];
 
 const BRUSH_SIZES = [1, 3, 5];
@@ -111,6 +125,9 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   onToolChange,
   brushSize = 1,
   onBrushSizeChange,
+  selectionRect,
+  onSymmetry,
+  onClearSelection,
 }) => {
   if (!isManualColoringMode) return null;
 
@@ -160,6 +177,61 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
           </>
         )}
       </div>
+
+      {/* ── 对称操作面板（选区工具且有选区时显示） ── */}
+      {drawingTool === 'select' && selectionRect && (
+        <div className="bg-white dark:bg-gray-800 border border-blue-300 dark:border-blue-600 rounded-2xl shadow-lg p-2 flex flex-col gap-1">
+          <p className="text-[9px] text-center text-blue-500 dark:text-blue-400 font-semibold mb-0.5">对称</p>
+          <div className="grid grid-cols-2 gap-1">
+            <button
+              onClick={() => onSymmetry?.('left-right')}
+              title="以选区中心为轴，左→右对称"
+              className="w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-800/40 transition-all text-[9px] font-medium"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 3v18M5 8l4 4-4 4M19 8l-4 4 4 4"/>
+              </svg>
+              左→右
+            </button>
+            <button
+              onClick={() => onSymmetry?.('right-left')}
+              title="以选区中心为轴，右→左对称"
+              className="w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-800/40 transition-all text-[9px] font-medium"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 3v18M19 8l-4 4 4 4M5 8l4 4-4 4"/>
+              </svg>
+              右→左
+            </button>
+            <button
+              onClick={() => onSymmetry?.('top-bottom')}
+              title="以选区中心为轴，上→下对称"
+              className="w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-800/40 transition-all text-[9px] font-medium"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 12h18M8 5l4 4 4-4M8 19l4-4 4 4"/>
+              </svg>
+              上→下
+            </button>
+            <button
+              onClick={() => onSymmetry?.('bottom-top')}
+              title="以选区中心为轴，下→上对称"
+              className="w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-800/40 transition-all text-[9px] font-medium"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 12h18M8 19l4-4 4 4M8 5l4 4 4-4"/>
+              </svg>
+              下→上
+            </button>
+          </div>
+          <button
+            onClick={onClearSelection}
+            className="mt-0.5 text-[9px] text-gray-400 dark:text-gray-500 hover:text-red-400 transition-colors text-center"
+          >
+            ✕ 取消选区
+          </button>
+        </div>
+      )}
 
       {/* ── 调色盘 ── */}
       <button

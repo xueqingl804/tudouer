@@ -1,11 +1,22 @@
 // 绘图工具算法集合
 
-export type DrawingTool = 'brush' | 'eyedropper' | 'line' | 'rect' | 'rect-fill' | 'circle' | 'circle-fill';
+export type DrawingTool = 'brush' | 'eyedropper' | 'line' | 'rect' | 'rect-fill' | 'circle' | 'circle-fill' | 'select';
 
 export interface GridCell {
   row: number;
   col: number;
 }
+
+/** 选区矩形（行列坐标，未排序） */
+export interface SelectionRect {
+  r1: number;
+  c1: number;
+  r2: number;
+  c2: number;
+}
+
+/** 对称方向 */
+export type SymmetryType = 'left-right' | 'right-left' | 'top-bottom' | 'bottom-top';
 
 /** 限制在网格范围内 */
 function clamp(val: number, min: number, max: number) {
@@ -146,6 +157,9 @@ export function getPreviewCells(
       return getEllipseOutlineCells(startRow, startCol, endRow, endCol);
     case 'circle-fill':
       return getEllipseFillCells(startRow, startCol, endRow, endCol);
+    case 'select':
+    case 'eyedropper':
+      return [];
     default:
       return [{ row: endRow, col: endCol }];
   }

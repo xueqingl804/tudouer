@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, TouchEvent, MouseEvent, useState, useCallback } from 'react';
 import { MappedPixel } from '../utils/pixelation';
-import { DrawingTool, GridCell } from '../utils/drawingUtils';
+import { DrawingTool, GridCell, SelectionRect } from '../utils/drawingUtils';
 
 interface PixelatedPreviewCanvasProps {
   mappedPixelData: MappedPixel[][] | null;
@@ -26,6 +26,7 @@ interface PixelatedPreviewCanvasProps {
   onDrawStart?: (row: number, col: number) => void;
   onDrawMove?: (row: number, col: number) => void;
   onDrawEnd?: (row: number, col: number) => void;
+  selectionRect?: SelectionRect | null;
 }
 
 const drawPixelatedCanvas = (
@@ -108,6 +109,59 @@ const drawPreviewOverlay = (
   }
 };
 
+/** 在 overlay canvas 上渲染选区虚线框 */
+const drawSelectionOverlay = (
+  overlayCanvas: HTMLCanvasElement,
+  dims: { N: number; M: number },
+  rect: SelectionRect
+) => {
+  const ctx = overlayCanvas.getContext('2d');
+  if (!ctx) return;
+  const { N, M } = dims;
+  const cellW = overlayCanvas.width / N;
+  const cellH = overlayCanvas.height / M;
+
+  const minR = Math.max(0, Math.min(rect.r1, rect.r2));
+  const maxR = Math.min(M - 1, Math.max(rect.r1, rect.r2));
+  const minC = Math.max(0, Math.min(rect.c1, rect.c2));
+  const maxC = Math.min(N - 1, Math.max(rect.c1, rect.c2));
+
+  const x = minC * cellW;
+  const y = minR * cellH;
+  const w = (maxC - minC + 1) * cellW;
+  const h = (maxR - minR + 1) * cellH;
+
+  // 半透明蓝色填充
+  ctx.fillStyle = 'rgba(59,130,246,0.12)';
+  ctx.fillRect(x, y, w, h);
+
+  // 虚线边框
+  ctx.save();
+  ctx.strokeStyle = 'rgba(59,130,246,0.9)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 3]);
+  ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+  ctx.restore();
+
+  // 中心辅助线（竖轴）
+  const centerX = x + w / 2;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(239,68,68,0.6)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(centerX, y);
+  ctx.lineTo(centerX, y + h);
+  ctx.stroke();
+  // 中心辅助线（横轴）
+  const centerY = y + h / 2;
+  ctx.beginPath();
+  ctx.moveTo(x, centerY);
+  ctx.lineTo(x + w, centerY);
+  ctx.stroke();
+  ctx.restore();
+};
+
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
@@ -129,6 +183,7 @@ const PixelatedPreviewCanvas: React.FC<PixelatedPreviewCanvasProps> = ({
   onDrawStart,
   onDrawMove,
   onDrawEnd,
+  selectionRect,
 }) => {
   const [darkModeState, setDarkModeState] = useState<boolean | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number; pageX: number; pageY: number } | null>(null);
@@ -166,17 +221,20 @@ const PixelatedPreviewCanvas: React.FC<PixelatedPreviewCanvasProps> = ({
     overlay.height = main.height;
   }, [canvasRef, mappedPixelData, gridDimensions]);
 
-  // 渲染预览 overlay
+  // 渲染预览 overlay（绘图预览 + 选区框）
   useEffect(() => {
     const overlay = overlayRef.current;
     if (!overlay || !gridDimensions) return;
+    const ctx = overlay.getContext('2d');
+    ctx?.clearRect(0, 0, overlay.width, overlay.height);
+
     if (previewCells.length > 0) {
       drawPreviewOverlay(overlay, gridDimensions, previewCells, selectedColor);
-    } else {
-      const ctx = overlay.getContext('2d');
-      ctx?.clearRect(0, 0, overlay.width, overlay.height);
     }
-  }, [previewCells, selectedColor, gridDimensions]);
+    if (selectionRect) {
+      drawSelectionOverlay(overlay, gridDimensions, selectionRect);
+    }
+  }, [previewCells, selectedColor, gridDimensions, selectionRect]);
 
   // 高亮动画
   useEffect(() => {
@@ -296,6 +354,7 @@ const PixelatedPreviewCanvas: React.FC<PixelatedPreviewCanvasProps> = ({
   const cursorStyle = !isManualColoringMode ? 'cursor-grab'
     : drawingTool === 'eyedropper' ? 'cursor-crosshair'
     : drawingTool === 'brush' ? 'cursor-cell'
+    : drawingTool === 'select' ? 'cursor-default'
     : 'cursor-crosshair';
 
   return (
